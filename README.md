@@ -40,6 +40,9 @@ python main.py /home/user/my_project/locales/en_US.json --locale ES --output es_
 -s, --sleep     Sleep time between API calls. Defaults to 0.01s
 -i, --indent    Output file indentation spaces. Defaults to 2
 --skip          Keys to skip (they won't be translated)
+--keep          Keys to keep (they will be not changed from existing value)
+--cache         Uses a cache file name to prevent re-requesting to API. Defaults to ".cache/[locale].json"
+--override      Override existing file witout prompting
 ```
 
 ### Example file
