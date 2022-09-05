@@ -50,7 +50,7 @@ def get_input_file(json_files: list, input_dir: str) -> str:
         return os.path.join(input_dir, json_files[int(file_idx)])
 
 
-def get_output_file(output: str, lang_code: str, input_file: str) -> str:
+def get_output_file(output: str, lang_code: str, input_file: str, auto_override:bool = False) -> str:
     """
     Get output file
 
@@ -63,7 +63,7 @@ def get_output_file(output: str, lang_code: str, input_file: str) -> str:
     if not output_file_name.endswith(".json"):
         output_file_name += ".json"
     output_file = os.path.join(os.path.dirname(input_file), output_file_name)
-    if os.path.exists(output_file):
+    if auto_override == True and os.path.exists(output_file):
         override = input(
             f"File {output_file_name} already exists. Do you want to override it? [Y/N] "
         )
@@ -96,7 +96,8 @@ def get_strings_from_file(
     target_locale: str,
     sleep: float,
     skip: list = None,
-    keep: list = None
+    keep: list = None,
+    cache: bool = None
 ) -> dict:
     """
     Get translated strings from file
@@ -127,11 +128,12 @@ def get_strings_from_file(
             sleep=sleep,
             skip=skip,
             keep=keep,
-            existing=existing
+            existing=existing,
+            cache=cache
         )
 
 
-def iterate_translate(data: dict, target_locale: str, sleep: float, skip: list, keep:list, existing:dict):
+def iterate_translate(data: dict, target_locale: str, sleep: float, skip: list, keep:list, existing:dict, cache:bool):
     """
     Iterate on data and translate the corresponding values
 
@@ -141,6 +143,7 @@ def iterate_translate(data: dict, target_locale: str, sleep: float, skip: list, 
     :param skip: list of keys to skip (no translate)
     :param keep: list of keys to keep (translate)
     :param existing: data already existing
+    :parem cache: enable cache
     :return: translated block
     """
     if isinstance(data, dict):
@@ -149,22 +152,24 @@ def iterate_translate(data: dict, target_locale: str, sleep: float, skip: list, 
         for key, value in data.items():
             if key in skip:
                 res[key] = value
-            if key in keep:
+            elif key in keep:
                 res[key] = existing[key]
+            elif key in GLOBAL_CACHE:
+                res[key] = GLOBAL_CACHE[key]
             else:
-                res[key] = iterate_translate(data=value, target_locale=target_locale, sleep=sleep, skip=skip, keep=keep, existing=existing)
+                res[key] = iterate_translate(data=value, target_locale=target_locale, sleep=sleep, skip=skip, keep=keep, existing=existing, cache=cache)
         return res
 
     if isinstance(data, list):
         # Value is multiple, so iterate it
-        return [iterate_translate(data=value, target_locale=target_locale, sleep=sleep, skip=skip, keep=keep, existing=existing) for value in data]
+        return [iterate_translate(data=value, target_locale=target_locale, sleep=sleep, skip=skip, keep=keep, existing=existing, cache=cache) for value in data]
 
     if isinstance(data, str):
         # Value is string, so translate it
         if data == "":
             return data
 
-        return translate_string(data, target_locale, sleep)
+        return translate_string(data, target_locale, sleep, cache)
 
     if isinstance(data, bool) or isinstance(data, int) or isinstance(data, float):
         # Value is boolean or numerical, return same value
@@ -220,14 +225,14 @@ def translate_string(text: str, target_locale: str, sleep: float, cache: dict = 
         print(f"{text}  ->  ERROR (response empty {response_data})")
         return text
 
-    print(text, " -> ", response_data["translations"][0]["text"])
+    # print(text, " -> ", response_data["translations"][0]["text"])
 
     if len(response_data["translations"]) > 1:
         print(f"({text}) More than 1 translation: {response_data['translations']}")
 
     dec_text = decode_text(response_data["translations"][0]["text"])
-    if cache:
-        cache[text] = dec_text
+    # if cache:
+    #     cache[text] = dec_text
     return dec_text
 
 
@@ -235,20 +240,32 @@ def decode_text(text: str) -> str:
     return str(text)
 
 
-def save_results_file(data: dict, output_file: str, indent: int = 2) -> None:
+def save_results_file(data: dict, output_file: str, indent: int = 2, cache_file:str = '') -> None:
     """
     Write output file
 
     :param data: dict object to dump into file
     :param output_file: output file path
     :param indent: json indentation
+    :parem cache_file: cache file path
     """
     with open(output_file, "w") as file:
         json.dump(data, file, indent=indent, ensure_ascii=False)
 
+    if(cache_file != None):
+        with open(cache_file, "w") as file:
+            json.dump(data, file, indent=indent, ensure_ascii=False)
+        
     print(f"Results saved on {output_file}")
 
 
+# get cache folder, if not existing create it
+def get_cache_folder():
+    folder = os.getcwd() + "/.cache_locale"
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    return folder
+    
 def main():
     if not os.environ.get("DEEPL_AUTH_KEY", False):
         raise Exception("Environment variables not loaded")
@@ -294,6 +311,23 @@ def main():
         nargs="+",
         help="Keys to keep",
     )
+    
+    parser.add_argument(
+        "--cache",
+        type=bool,
+        default=True,
+        nargs="+",
+        help="use a file cache",
+    )
+    
+    parser.add_argument(
+        "--override",
+        type=bool,
+        default=False,
+        nargs="+",
+        help="Override existing file",
+    )
+      
     args = parser.parse_args()
 
     input_dir = os.path.normpath(args.file)
@@ -316,12 +350,25 @@ def main():
     if lang_code.lower() == json_file_name.lower():
         print("You are trying to translate the same language!")
         exit()
+    
+    # if cache is enable, load json file into global cache
+    
+    cache_file = os.path.join(get_cache_folder(),lang_code + '.json') if args.cache else None
+    
+    if args.cache:
+        try:
+            with open(cache_file) as f:
+                global GLOBAL_CACHE
+                GLOBAL_CACHE = json.load(f)
+        except FileNotFoundError:
+            pass
+                                     
 
-    output_file = get_output_file(args.output, lang_code, input_file)
+    output_file = get_output_file(args.output, lang_code, input_file, auto_override=args.override)
     results = get_strings_from_file(
-        input_file, output_file, lang_code.upper(), args.sleep, args.skip,args.keep
+        input_file, output_file, lang_code.upper(), args.sleep, args.skip,args.keep, args.cache
     )
-    save_results_file(results, output_file, args.indent)
+    save_results_file(results, output_file, args.indent, cache_file if args.cache else None)
 
 
 if __name__ == "__main__":
