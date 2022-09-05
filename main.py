@@ -92,9 +92,11 @@ def get_target_lang_code(locale: str) -> str:
 
 def get_strings_from_file(
     filepath: str,
+    output_file: str,
     target_locale: str,
     sleep: float,
     skip: list = None,
+    keep: list = None
 ) -> dict:
     """
     Get translated strings from file
@@ -103,29 +105,42 @@ def get_strings_from_file(
     :param target_locale: locale to translate
     :param sleep: sleep time between API calls
     :param skip: list of keys to ignore
+    :param keep: list of keys to keep
     :return: translated file
     """
     if skip is None:
         skip = []
+    if keep is None:
+        keep = []
 
     with open(filepath) as f:
         data = json.load(f)
+        try:
+            with open(output_file) as out_f:
+                existing = json.load(out_f)
+        except FileNotFoundError:
+            existing = {}
+            
         return iterate_translate(
             data=data,
             target_locale=target_locale,
             sleep=sleep,
             skip=skip,
+            keep=keep,
+            existing=existing
         )
 
 
-def iterate_translate(data: dict, target_locale: str, sleep: float, skip: list):
+def iterate_translate(data: dict, target_locale: str, sleep: float, skip: list, keep:list, existing:dict):
     """
     Iterate on data and translate the corresponding values
 
     :param data: data to iterate
     :param target_locale: language into which the data will be translated
     :param sleep: sleep time between calls
-    :param skip: list ok keys to skip (no translate)
+    :param skip: list of keys to skip (no translate)
+    :param keep: list of keys to keep (translate)
+    :param existing: data already existing
     :return: translated block
     """
     if isinstance(data, dict):
@@ -134,13 +149,15 @@ def iterate_translate(data: dict, target_locale: str, sleep: float, skip: list):
         for key, value in data.items():
             if key in skip:
                 res[key] = value
+            if key in keep:
+                res[key] = existing[key]
             else:
-                res[key] = iterate_translate(value, target_locale, sleep, skip)
+                res[key] = iterate_translate(data=value, target_locale=target_locale, sleep=sleep, skip=skip, keep=keep, existing=existing)
         return res
 
     if isinstance(data, list):
         # Value is multiple, so iterate it
-        return [iterate_translate(value, target_locale, sleep, skip) for value in data]
+        return [iterate_translate(data=value, target_locale=target_locale, sleep=sleep, skip=skip, keep=keep, existing=existing) for value in data]
 
     if isinstance(data, str):
         # Value is string, so translate it
@@ -272,6 +289,11 @@ def main():
         nargs="+",
         help="Keys to skip",
     )
+    parser.add_argument(
+        "--keep",
+        nargs="+",
+        help="Keys to keep",
+    )
     args = parser.parse_args()
 
     input_dir = os.path.normpath(args.file)
@@ -297,7 +319,7 @@ def main():
 
     output_file = get_output_file(args.output, lang_code, input_file)
     results = get_strings_from_file(
-        input_file, lang_code.upper(), args.sleep, args.skip
+        input_file, output_file, lang_code.upper(), args.sleep, args.skip,args.keep
     )
     save_results_file(results, output_file, args.indent)
 
