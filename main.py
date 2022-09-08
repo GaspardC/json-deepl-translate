@@ -153,7 +153,7 @@ def iterate_translate(data: dict, target_locale: str, sleep: float, skip: list, 
             if key in skip:
                 res[key] = value
             # keep if key is in keep list and existing[key] exist and is not null nor empty
-            elif key in keep and existing[key] and existing[key] != "":
+            elif key in keep and existing and existing[key] is not None and existing[key] != "":
                 res[key] = existing[key]
             elif key in GLOBAL_CACHE:
                 res[key] = GLOBAL_CACHE[key]
