@@ -248,7 +248,7 @@ def save_results_file(data: dict, output_file: str, indent: int = 2, cache_file:
     :param data: dict object to dump into file
     :param output_file: output file path
     :param indent: json indentation
-    :parem cache_file: cache file path
+    :param cache_file: cache file path
     """
     with open(output_file, "w") as file:
         json.dump(data, file, indent=indent, ensure_ascii=False)
@@ -322,6 +322,12 @@ def main():
     )
     
     parser.add_argument(
+        "--nocache",
+        nargs="+",
+        help="Keys to burst cache",
+    )
+    
+    parser.add_argument(
         "--override",
         type=bool,
         default=False,
@@ -361,6 +367,9 @@ def main():
             with open(cache_file) as f:
                 global GLOBAL_CACHE
                 GLOBAL_CACHE = json.load(f)
+                if args.nocache:
+                    for key in args.nocache:
+                        GLOBAL_CACHE.pop(key, None)
         except FileNotFoundError:
             pass
                                      
